@@ -309,6 +309,53 @@
       <artifactId>simpleclient_servlet</artifactId>
       <version>0.5.0</version>
     </dependency>
+
+
+    <!--
+    Foster dependencies
+    -->
+
+    <dependency>
+      <groupId>javax.mail</groupId>
+      <artifactId>mail</artifactId>
+      <version>1.4</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.olacabs.dataplatform</groupId>
+      <artifactId>ola-dp-config-manager</artifactId>
+      <version>1.0.14</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.olacabs.dp.foster</groupId>
+      <artifactId>foster-models</artifactId>
+      <version>1.0.18</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.olacabs.dataplatform</groupId>
+      <artifactId>ola-dp-ingestor</artifactId>
+      <version>1.0.2</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.olacabs.dp.kaas</groupId>
+      <artifactId>kaas-client</artifactId>
+      <version>1.5.34</version>
+    </dependency>
+      <dependency>
+          <groupId>org.projectlombok</groupId>
+          <artifactId>lombok</artifactId>
+          <version>1.18.12</version>
+      </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.module</groupId>
+      <artifactId>jackson-module-afterburner</artifactId>
+      <version>2.10.5</version>
+    </dependency>
+
+
   </dependencies>
 
   <build>

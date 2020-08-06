@@ -2,6 +2,12 @@ package com.zendesk.maxwell;
 
 import com.djdch.log4j.StaticShutdownCallbackRegistry;
 import com.github.shyiko.mysql.binlog.network.ServerException;
+import com.ola.dataplatform.maxwell.configmanager.ConfigClient;
+import com.ola.dataplatform.maxwell.configmanager.ConfigType;
+import com.olacabs.dp.kaas.client.kafka.producer.impl.DefaultPartitionKeyGenerator;
+import com.olacabs.dp.kaas.client.kafka.producer.impl.KaasProducerImpl;
+import com.olacabs.dp.utils.KafkaTopicMapper;
+import com.olacabs.dp.utils.SchemaSynchronizer;
 import com.zendesk.maxwell.bootstrap.BootstrapController;
 import com.zendesk.maxwell.producer.AbstractProducer;
 import com.zendesk.maxwell.recovery.Recovery;
@@ -13,6 +19,8 @@ import com.zendesk.maxwell.row.HeartbeatRowMap;
 import com.zendesk.maxwell.schema.*;
 import com.zendesk.maxwell.schema.columndef.ColumnDefCastException;
 import com.zendesk.maxwell.util.Logging;
+import com.zendesk.maxwell.util.MaxwellOptionParser;
+import joptsimple.OptionSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,11 +29,17 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class Maxwell implements Runnable {
 	protected MaxwellConfig config;
 	protected MaxwellContext context;
 	protected Replicator replicator;
+	private Schema schema;
+	private KafkaTopicMapper kafkaTopicMapper;
+	private SchemaSynchronizer schemaSynchronizer;
+	private KaasProducerImpl kaasProducer;
+	private static final UUID uuid = UUID.randomUUID();
 
 	static final Logger LOGGER = LoggerFactory.getLogger(Maxwell.class);
 
@@ -202,8 +216,12 @@ public class Maxwell implements Runnable {
 			}
 		}
 
-		AbstractProducer producer = this.context.getProducer();
 
+		AbstractProducer producer = this.context.getProducer();
+		/**
+		 * For first run, it will get position from the replication connection
+		 * For further runs, it will get position from the maxwell positions table
+		 */
 		Position initPosition = getInitialPosition();
 		logBanner(producer, initPosition);
 		this.context.setPosition(initPosition);
@@ -215,7 +233,18 @@ public class Maxwell implements Runnable {
 			mysqlSchemaStore.captureAndSaveSchema();
 		}
 
-		mysqlSchemaStore.getSchema(); // trigger schema to load / capture before we start the replicator.
+		schema=mysqlSchemaStore.getSchema();// trigger schema to load / capture before we start the replicator.
+		LOGGER.info(schema.getDatabaseNames().toString());
+
+		kafkaTopicMapper = new KafkaTopicMapper(this.context);
+		schemaSynchronizer = new SchemaSynchronizer(context,schema,kafkaTopicMapper);
+
+		mysqlSchemaStore.setSchemaSynchronizer(schemaSynchronizer);
+
+		schemaSynchronizer.init();
+
+		producer.setKafkaTopicMapper(kafkaTopicMapper);
+		producer.setSchemaSynchronizer(schemaSynchronizer);
 
 		this.replicator = new BinlogConnectorReplicator(
 			mysqlSchemaStore,
@@ -251,12 +280,50 @@ public class Maxwell implements Runnable {
 	public static void main(String[] args) {
 		try {
 			Logging.setupLogBridging();
-			MaxwellConfig config = new MaxwellConfig(args);
 
+			MaxwellConfig config = new MaxwellConfig();
+			MaxwellOptionParser parser = config.buildOptionParser();
+			OptionSet options = parser.parse(args);
+
+			ConfigType configType= ConfigType.valueOf((String) options.valueOf("config_type"));
+			String kaasConfigFile = (String) options.valueOf("kaas_config");
+			String zookeeperTimeout = (String) options.valueOf("zk_timeout");
+
+			KaasProducerImpl kaasProducer = KaasProducerImpl.<String, String>fileBuilder().configFilePath(kaasConfigFile).partitionKeyGenerator(new DefaultPartitionKeyGenerator()).fileBuild();
+			try {
+				kaasProducer.initialize();
+			} catch (Exception e) {
+				LOGGER.error("Unable to initialize kaas client. Error is {}", e.getMessage());
+				System.exit(1);
+			}
+
+			String configFileName=null;
+			for(int attempt=0;attempt<3;attempt++){
+				try {
+					ConfigClient client = ConfigClient.getInstance(kaasProducer.getPrimaryZkList(), Integer.parseInt(zookeeperTimeout), uuid.toString(), configType);
+					configFileName = client.getConfig();
+					break;
+				} catch (Exception e) {
+					LOGGER.error("{}", e.getMessage());
+				}
+				LOGGER.warn("Couldn't get config to proceed. Sleeping and retrying after {} ms ", zookeeperTimeout);
+				Thread.sleep(Integer.parseInt(zookeeperTimeout));
+			}
+
+			if(configFileName==null){
+				LOGGER.info("No config file found from Config Service !!");
+				System.exit(1);
+			}
+
+//			configFileName ="config.properties";
+			LOGGER.info("Received configuration fileName :  {} ", configFileName);
+			config.parse(configFileName);
 			if ( config.log_level != null )
 				Logging.setLevel(config.log_level);
 
-			final Maxwell maxwell = new Maxwell(config);
+			MaxwellContext context = new MaxwellContext(config);
+			context.setKaasProducer(kaasProducer);
+			final Maxwell maxwell = new Maxwell(context);
 
 			Runtime.getRuntime().addShutdownHook(new Thread() {
 				@Override

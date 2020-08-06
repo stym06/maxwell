@@ -1,5 +1,6 @@
 package com.zendesk.maxwell.schema;
 
+import com.olacabs.dp.utils.SchemaSynchronizer;
 import com.zendesk.maxwell.CaseSensitivity;
 import com.zendesk.maxwell.MaxwellContext;
 import com.zendesk.maxwell.filtering.Filter;
@@ -22,6 +23,8 @@ public class MysqlSchemaStore extends AbstractSchemaStore implements SchemaStore
 	private Long serverID;
 
 	private MysqlSavedSchema savedSchema;
+
+	private SchemaSynchronizer schemaSynchronizer;
 
 	public MysqlSchemaStore(ConnectionPool maxwellConnectionPool,
 							ConnectionPool replicationConnectionPool,
@@ -49,6 +52,10 @@ public class MysqlSchemaStore extends AbstractSchemaStore implements SchemaStore
 			context.getFilter(),
 			context.getReplayMode()
 		);
+	}
+
+	public void setSchemaSynchronizer(SchemaSynchronizer schemaSynchronizer){
+		this.schemaSynchronizer = schemaSynchronizer;
 	}
 
 	public Schema getSchema() throws SchemaStoreException {
@@ -123,6 +130,13 @@ public class MysqlSchemaStore extends AbstractSchemaStore implements SchemaStore
 
 		try (Connection c = maxwellConnectionPool.getConnection()) {
 			this.savedSchema = this.savedSchema.createDerivedSchema(updatedSchema, p, changes);
+
+
+			//Synchronize schema
+			schemaSynchronizer.setDbSchema(this.savedSchema.getSchema());
+			schemaSynchronizer.synchronizeSchemas();
+			schemaSynchronizer.init();
+
 			return this.savedSchema.save(c);
 		}
 	}

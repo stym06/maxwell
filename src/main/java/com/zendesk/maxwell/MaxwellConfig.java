@@ -3,6 +3,7 @@ package com.zendesk.maxwell;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.health.HealthCheckRegistry;
 import com.github.shyiko.mysql.binlog.network.SSLMode;
+import com.olacabs.dp.kaas.client.kafka.producer.impl.KaasProducerImpl;
 import com.zendesk.maxwell.filtering.Filter;
 import com.zendesk.maxwell.filtering.InvalidFilterException;
 import com.zendesk.maxwell.monitoring.MaxwellDiagnosticContext;
@@ -18,6 +19,7 @@ import joptsimple.BuiltinHelpFormatter;
 import joptsimple.OptionDescriptor;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -148,6 +150,31 @@ public class MaxwellConfig extends AbstractConfig {
 	public String javascriptFile;
 	public Scripting scripting;
 
+	/**
+	 * Foster related configs below
+	 */
+
+	public String org;
+	public String tenant;
+	public String schemaCreatorUserName;
+
+	public String emailToList;
+	public String emailFrom;
+	public String auth;
+	public String emailHost;
+	public String emailPort;
+	public String emailUsername;
+
+	public String metaServiceURL;
+	public String metaServiceSchemaGETAPI;
+	public String metaServiceSchemaPOSTAPI;
+	public String metaServiceTopicAPI;
+	public String instanceName;
+
+	public Map<String, Map<String, List<String>>> schemaBlacklistConfig;
+
+	public String foster_stdout;
+
 	public MaxwellConfig() { // argv is only null in tests
 		this.customProducerProperties = new Properties();
 		this.kafkaProperties = new Properties();
@@ -168,6 +195,7 @@ public class MaxwellConfig extends AbstractConfig {
 		this();
 		this.parse(argv);
 	}
+
 
 	protected MaxwellOptionParser buildOptionParser() {
 		final MaxwellOptionParser parser = new MaxwellOptionParser();
@@ -365,8 +393,18 @@ public class MaxwellConfig extends AbstractConfig {
 
 		parser.accepts( "help", "display help" ).withOptionalArg().forHelp();
 
+		//foster
+		parser.accepts("kaas_config","config file for kaas producer").withRequiredArg();
+		parser.accepts("zk_url","zookeeper url if kaas not used").withRequiredArg();
+		parser.accepts("config_type","config type of maxwell instance").withRequiredArg();
+		parser.accepts("zk_timeout","timeout for zk client").withRequiredArg();
 
 		return parser;
+	}
+
+	public void parse(String configFile){
+		Properties properties = parseFile(configFile,true);
+		setup(null,properties);
 	}
 
 	private void parse(String [] argv) {
@@ -374,10 +412,9 @@ public class MaxwellConfig extends AbstractConfig {
 		OptionSet options = parser.parse(argv);
 
 		Properties properties;
-
 		if (options.has("config")) {
 			properties = parseFile((String) options.valueOf("config"), true);
-		} else {
+		}else {
 			properties = parseFile(DEFAULT_CONFIG_FILE, false);
 		}
 
@@ -386,8 +423,8 @@ public class MaxwellConfig extends AbstractConfig {
 		if (envConfigPrefix != null) {
 			String prefix = envConfigPrefix.toLowerCase();
 			System.getenv().entrySet().stream()
-					.filter(map -> map.getKey().toLowerCase().startsWith(prefix))
-					.forEach(config -> properties.put(config.getKey().toLowerCase().replaceFirst(prefix, ""), config.getValue()));
+				.filter(map -> map.getKey().toLowerCase().startsWith(prefix))
+				.forEach(config -> properties.put(config.getKey().toLowerCase().replaceFirst(prefix, ""), config.getValue()));
 		}
 
 		if (options.has("help"))
@@ -609,6 +646,23 @@ public class MaxwellConfig extends AbstractConfig {
 			outputConfig.secretKey = fetchOption("secret_key", options, properties, null);
 		}
 
+		this.org = fetchOption("org",options,properties,null);
+		this.schemaCreatorUserName = fetchOption("schemaCreatorUserName",options,properties,null);
+		this.tenant = fetchOption("tenant",options,properties,null);
+		this.instanceName = org + "_" + tenant;
+		this.emailToList = fetchOption("emailToList",options,properties,null);
+		this.emailFrom = fetchOption("emailFrom",options,properties,null);
+		this.emailUsername = fetchOption("emailUsername",options,properties,null);
+		this.auth = fetchOption("auth",options,properties,null);
+		this.emailHost = fetchOption("emailHost",options,properties,null);
+		this.emailPort = fetchOption("emailPort",options,properties,null);
+
+		this.metaServiceURL = fetchOption("metaServiceURL",options,properties,null);
+		this.metaServiceSchemaGETAPI = fetchOption("metaServiceSchemaGETAPI",options,properties,null);
+		this.metaServiceSchemaPOSTAPI = fetchOption("metaServiceSchemaPOSTAPI",options,properties,null);
+		this.metaServiceTopicAPI = fetchOption("metaServiceTopicAPI",options,properties,null);
+
+		this.foster_stdout = fetchOption("foster_stdout",options,properties,null);
 	}
 
 	private Properties parseFile(String filename, Boolean abortOnMissing) {

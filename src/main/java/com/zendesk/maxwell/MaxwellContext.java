@@ -1,5 +1,10 @@
 package com.zendesk.maxwell;
 
+import com.olacabs.dp.kaas.client.kafka.producer.impl.DefaultPartitionKeyGenerator;
+import com.olacabs.dp.kaas.client.kafka.producer.impl.KaasProducerImpl;
+import com.olacabs.dp.producer.FosterStdoutProducer;
+import com.olacabs.dp.producer.MaxwellKaasProducer;
+import com.olacabs.dp.utils.SchemaSynchronizer;
 import com.zendesk.maxwell.bootstrap.BootstrapController;
 import com.zendesk.maxwell.bootstrap.SynchronousBootstrapper;
 import com.zendesk.maxwell.filtering.Filter;
@@ -31,11 +36,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MaxwellContext {
 	static final Logger LOGGER = LoggerFactory.getLogger(MaxwellContext.class);
 
-	private final ConnectionPool replicationConnectionPool;
-	private final ConnectionPool maxwellConnectionPool;
-	private final ConnectionPool rawMaxwellConnectionPool;
-	private final ConnectionPool schemaConnectionPool;
-	private final MaxwellConfig config;
+	/**
+	 * Connection pool contains getConnection() and probe() methods
+	 */
+
+	private final ConnectionPool replicationConnectionPool; //for connection to replication server
+	private final ConnectionPool maxwellConnectionPool;		//for connection to maxwell_mysql server with database in the uri
+	private final ConnectionPool rawMaxwellConnectionPool; 	//for connection to maxwell_mysql server
+	private final ConnectionPool schemaConnectionPool;		//for schema connection
+	private final MaxwellConfig config;						//for configs from properties file
 	private final MaxwellMetrics metrics;
 	private final MysqlPositionStore positionStore;
 	private PositionStoreThread positionStoreThread;
@@ -55,6 +64,7 @@ public class MaxwellContext {
 
 	private BootstrapController bootstrapController;
 	private Thread bootstrapControllerThread;
+	private KaasProducerImpl kaasProducer;
 
 	public MaxwellContext(MaxwellConfig config) throws SQLException, URISyntaxException {
 		this.config = config;
@@ -365,6 +375,12 @@ public class MaxwellContext {
 			case "none":
 				this.producer = new NoneProducer(this);
 				break;
+			case "foster_stdout":
+				this.producer = new FosterStdoutProducer(this);
+				break;
+			case "kaas":
+				this.producer = new MaxwellKaasProducer(this);
+				break;
 			default:
 				throw new RuntimeException("Unknown producer type: " + this.config.producerType);
 			}
@@ -445,5 +461,13 @@ public class MaxwellContext {
 
 	public MaxwellDiagnosticContext getDiagnosticContext() {
 		return this.diagnosticContext;
+	}
+
+	public void setKaasProducer(KaasProducerImpl kaasProducer) {
+		this.kaasProducer = kaasProducer;
+	}
+
+	public KaasProducerImpl getKaasProducer() {
+		return this.kaasProducer;
 	}
 }

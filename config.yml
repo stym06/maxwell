@@ -1,0 +1,5 @@
+#connectionEndpoint: http://ola-dp-kaas-config-service-role-mngt-8081.int.lb
+connectionEndpoint: localhost
+tenant: localhost
+subTenant: stym06
+clientId: foster.maxwell
